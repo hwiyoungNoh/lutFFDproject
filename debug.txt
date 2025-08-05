@@ -1,0 +1,30 @@
+[Running] cd "c:\Users\heuser\Desktop\gitTest\cppProject\" && g++ cppCombine.cpp -o cppCombine && "c:\Users\heuser\Desktop\gitTest\cppProject\"cppCombine
+cppCombine.cpp: In function 'void sector_polygon_and_lut_update(int, int, int, int, int, int)':
+cppCombine.cpp:196:14: error: expected unqualified-id before '[' token
+         auto [x,y] = polar_to_cart(hh,ss);
+              ^
+cppCombine.cpp:197:29: error: 'x' was not declared in this scope
+         if(point_in_polygon(x,y,poly)) sector_mask[r][g][b]=true;
+                             ^
+cppCombine.cpp:197:31: error: 'y' was not declared in this scope
+         if(point_in_polygon(x,y,poly)) sector_mask[r][g][b]=true;
+                               ^
+cppCombine.cpp: In function 'bool pqcontrollerCustomLut_setColorFineParam(std::vector<COLOR_TUNING_INFO_T>, int)':
+cppCombine.cpp:270:24: error: '_update_coordinate' was not declared in this scope
+     _update_coordinate();
+                        ^
+cppCombine.cpp: In function 'bool pqcontrollerCustomLut_setColorFineFunction(int)':
+cppCombine.cpp:294:27: error: '_make_bypass_lut' was not declared in this scope
+         _make_bypass_lut(0);
+                           ^
+cppCombine.cpp: In function 'void parseJsonString(const string&, COLOR_TUNING_INFO_T&)':
+cppCombine.cpp:301:35: error: variable 'std::istringstream ss' has initializer but incomplete type
+     std::istringstream ss(jsonData);
+                                   ^
+cppCombine.cpp: In function 'int main()':
+cppCombine.cpp:325:52: error: 'pqcontrollerCustomLut_init_custom_lut_function' was not declared in this scope
+     pqcontrollerCustomLut_init_custom_lut_function();
+                                                    ^
+cppCombine.cpp:348:29: error: 'usleep' was not declared in this scope
+         usleep( 4000 * 1000 );
+                             ^
