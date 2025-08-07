@@ -215,8 +215,8 @@ std::vector<int> find_close_lut(double theta, double r, double v, double radius,
         rgbIndex[i] = base;
     }
 #ifdef DEBUG
-    printf("[%s] hsv=( %.4f,%.4f,%.4f ) rgb = (%.4f,%.4f,%.4f)\n",
-        __FUNCTION__,hsv[0],hsv[1],hsv[2],rgb[0],rgb[1],rgb[2]);
+    printf("[%s] input = [%.4f, %2.4f,%.4f], hsv=( %.4f,%.4f,%.4f ) rgb = (%.4f,%.4f,%.4f)\n",
+        __FUNCTION__,theta,r,v,hsv[0],hsv[1],hsv[2],rgb[0],rgb[1],rgb[2]);
 #endif
 
     return rgbIndex;
@@ -356,8 +356,8 @@ vector<vector<int>> extract_changed_control_points() {
             double new_radius = current_graph_coordinate[i][j][k].second / double(FIXED_POINT_SCALE);
             double new_h = new_theta / (2 * M_PI);
             double new_s = new_radius / saturation_max_level;
-            printf("[CHANGE] idx=[%2d,%2d,%2d] orig_hsv:(%.4f,%.4f) -> moved_hsv:(%.4f,%.4f)\n",
-                i,j,k,orig_h,orig_s,new_h,new_s);
+            printf("[CHANGE] idx=[%2d,%2d,%2d] orig_hsv:(%.4f,%.4f,%.4f) -> moved_hsv:(%.4f,%.4f,%.4f)\n",
+                i,j,k,orig_h,orig_s,(float)i/(float)(gain_step-1),new_h,new_s,(float)i/(float)(gain_step-1));
 #endif
         }
     }
@@ -532,8 +532,8 @@ void sector_polygon_and_lut_update(int gain, int row, int col) {
     double moved_radius = current_graph_coordinate[gain][row][col].second / FIXED_POINT_SCALE;
     double moved_h = moved_theta / (2 * M_PI), moved_s = moved_radius / saturation_max_level, moved_v = get_gain(gain);
  
-    vector<int> oriLutIdx = find_close_lut(orig_h,orig_s,orig_v,(float)saturation_max_level,LUT_STEP_SIZE);
-    vector<int> targetLutIdx = find_close_lut(moved_h,moved_s,moved_v,(float)saturation_max_level,LUT_STEP_SIZE);
+    vector<int> oriLutIdx = find_close_lut(orig_h,orig_radius,orig_v,(float)saturation_max_level,LUT_STEP_SIZE);
+    vector<int> targetLutIdx = find_close_lut(moved_h,moved_radius,moved_v,(float)saturation_max_level,LUT_STEP_SIZE);
 #ifdef DEBUG
     printf("[SECTOR] idx=[%d,%d,%d] orig_hsv=(%.4f,%.4f,%.4f), moved_hsv=(%.4f,%.4f,%.4f), ori_lut_idx = [%d,%d,%d] moved_lut_idx=[%d,%d,%d]\n",
         gain, row, col, orig_h, orig_s, orig_v, moved_h, moved_s, moved_v,oriLutIdx[0],oriLutIdx[1],oriLutIdx[2],targetLutIdx[0],targetLutIdx[1],targetLutIdx[2]);
