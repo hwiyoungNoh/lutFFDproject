@@ -49,6 +49,11 @@ typedef struct {
     int theta;
     int radius;
 } COLOR_TUNING_INFO_T;
+#define ALGORITHM_VERSION_1
+
+#define PRINT_FUNCTION(txt , ...) \
+    printf(txt, ##__VA_ARGS__)
+	//PMLOG_INFO(MSGID_CTRL_PQCONTROLLER_INFO,txt, ##__VA_ARGS__)
 
 // ----------------- 자료구조/글로벌 -----------------
 struct GraphInfo {
@@ -74,22 +79,195 @@ int gRadius = 20;
 bool bIsInit = false;
 
 short cscGamutTable[9] = {0,};
-//unsigned short gOriginalLutTable[ORIGINAL_LUT_SIZE * ORIGINAL_LUT_SIZE * ORIGINAL_LUT_SIZE * 3] = {0,};
 int reDeGammaTable[2] = {0,};
-unsigned int gOriginalLutTable[LUT_STEP_SIZE * LUT_STEP_SIZE * LUT_STEP_SIZE * 3] = {0,};
+unsigned short gOriginalLutTable[LUT_STEP_SIZE * LUT_STEP_SIZE * LUT_STEP_SIZE * 3] = {0,};
 int originalUiValue = 0;
-int gGamutTableRgbDomain[ORIGINAL_LUT_SIZE * ORIGINAL_LUT_SIZE * ORIGINAL_LUT_SIZE][3] = {0,};
-float gBypassStandardArray[LUT_STEP_SIZE * LUT_STEP_SIZE * LUT_STEP_SIZE][3] = {0,};
-float gCurrentGamutArray[LUT_STEP_SIZE * LUT_STEP_SIZE * LUT_STEP_SIZE][3] = {0,};
+unsigned short gGamutTableRgbDomain[ORIGINAL_LUT_SIZE * ORIGINAL_LUT_SIZE * ORIGINAL_LUT_SIZE][3] = {0,};
+float gBypassStandardArray[LUT_STEP_SIZE * LUT_STEP_SIZE * LUT_STEP_SIZE][3] = {0.0f,};
+float gCurrentGamutArray[LUT_STEP_SIZE * LUT_STEP_SIZE * LUT_STEP_SIZE][3] = {0.0f,};
 unsigned short gSoc17LutTable[LUT_STEP_SIZE * LUT_STEP_SIZE * LUT_STEP_SIZE * 3] = {0,};
 unsigned short gSocOutputTable[ORIGINAL_LUT_SIZE * ORIGINAL_LUT_SIZE * ORIGINAL_LUT_SIZE * 3] = {0,};
+
 float final_data[ORIGINAL_LUT_SIZE*ORIGINAL_LUT_SIZE*ORIGINAL_LUT_SIZE * 3] = {0.0f,};
 float final17_data[LUT_STEP_SIZE*LUT_STEP_SIZE*LUT_STEP_SIZE * 3] = {0.0f,};
 bool isLutLoadOk = false;
- 
+bool isLutSetOk = false;
+  
 /*-----------------------------------------------------------------------------
         Code
 ------------------------------------------------------------------------------*/
+
+// ==================================================== Debug ===========================================================
+
+float importArray[ORIGINAL_LUT_SIZE * ORIGINAL_LUT_SIZE * ORIGINAL_LUT_SIZE][3] = {0.0,};
+// ==================================================== Test Function ===================================================
+
+
+void _make_soc_3dlut_test(unsigned short* table, int size) {
+    for (int i = 0; i < (size * size * size); i++) {
+        table[i*3 + 0] = (unsigned short)(importArray[i][0] * 4095);
+        table[i*3 + 1] = (unsigned short)(importArray[i][1] * 4095);
+        table[i*3 + 2] = (unsigned short)(importArray[i][2] * 4095);
+    }
+}
+
+int _file_import(const char *fileName)
+{
+    ifstream ifile(fileName);
+    if (!ifile) {
+        printf("[%s][HWI] File open error! ", __FUNCTION__);
+        PRINT_FUNCTION( "[%s][HWI] File open error! ", __FUNCTION__);
+        return -1;
+    }
+    int size           = 0;
+    int lutType        = 0;
+    int maxVal         = 0;
+    int count          = 0;
+    int parsingCount   = 30;
+    bool isParsingGood = true;
+
+    string extention(fileName);
+    istringstream extenstream(extention);
+    string tmpBuff;
+
+    while (getline(extenstream, tmpBuff, '.'))
+        ;
+
+    PRINT_FUNCTION( "[HWI] fileName : [%s], extention : %s\n", fileName, tmpBuff.c_str());
+
+    string sbuffer("START");
+    if (tmpBuff.compare("CUBE") == 0) {
+        try {
+            while (getline(ifile, sbuffer) && (count < parsingCount)) {
+                if (sbuffer == "#LUT size") {
+                    isParsingGood = true;
+                    break;
+                } else
+                    isParsingGood = false;
+                count++;
+            }
+
+            if (isParsingGood != true) {
+                PRINT_FUNCTION( "ERROR: file parsing error. isParsingGood = %d\n", isParsingGood);
+                return -1;
+            }
+
+            getline(ifile, sbuffer);
+
+            istringstream streamString(sbuffer);
+            string stok;
+
+            while (getline(streamString, stok, ' '))
+                ;
+
+            size = stoi(stok);
+            PRINT_FUNCTION( "[HWI]LUT SIZE : %d", size);
+
+            while (sbuffer != "#LUT data points")
+                getline(ifile, sbuffer);
+            lutType = 0;
+        } catch (const std::exception &e) {
+            PRINT_FUNCTION( "ERROR: file parsing error %s\n", e.what());
+            return -1;
+        }
+    } else if (tmpBuff.compare("cube") == 0) {
+        try {
+            while (getline(ifile, sbuffer) && (count < parsingCount)) {
+                if (sbuffer.find("LUT_3D_SIZE") != string::npos) {
+                    isParsingGood = true;
+                    break;
+                } else
+                    isParsingGood = false;
+                count++;
+            }
+
+            if (isParsingGood != true) {
+                PRINT_FUNCTION( "ERROR: file parsing error. isParsingGood = %d\n", isParsingGood);
+                return -1;
+            }
+
+            istringstream streamString(sbuffer);
+            string stok;
+
+            while (getline(streamString, stok, ' '))
+                ;
+
+            size = stoi(stok);
+            PRINT_FUNCTION( "[HWI] LUT SIZE : %d", size);
+            lutType = 1;
+        } catch (const std::exception &e) {
+            PRINT_FUNCTION( "ERROR: file parsing error %s\n", e.what());
+            return -1;
+        }
+    } else if (tmpBuff.compare("3dl") == 0) {
+        try {
+            while (getline(ifile, sbuffer)) {
+                if (sbuffer[0] != '#')
+                    break;
+            }
+
+            istringstream streamString(sbuffer);
+            string stok;
+            vector<int> sizeVec;
+            while (getline(streamString, stok, ' '))
+                sizeVec.push_back(stoi(stok));
+            size   = sizeVec.size();
+            maxVal = sizeVec.back();
+            PRINT_FUNCTION( " 3dl size : %d, maxval : %d", size, maxVal);
+            for (int i = 0; i < size; i++)
+                cout << sizeVec[i] << endl;
+            lutType = 2;
+        } catch (const std::exception &e) {
+            PRINT_FUNCTION( "ERROR: file parsing error %s\n", e.what());
+            return -1;
+        }
+    } else {
+        PRINT_FUNCTION( "File Format Error! format : %s\n", tmpBuff.c_str());
+        return 0;
+    }
+
+    if (size > 70) {
+        PRINT_FUNCTION( "LUT File Size is too big!! size = %d", size);
+        return 0;
+    }
+
+    int scount = 0;
+    try {
+        while (getline(ifile, sbuffer)) {
+            istringstream streamStr(sbuffer);
+            string stok2;
+
+            if (sbuffer.length() <= 3)
+                continue;
+
+            for (int i = 0; i < 3; i++) {
+                getline(streamStr, stok2, ' ');
+                if (lutType == 2)
+                    importArray[scount][i] = (double)stod(stok2) / maxVal;
+                else
+                    importArray[scount][i] = stod(stok2);
+            }
+            scount++;
+        }
+    } catch (const std::exception &e) {
+        PRINT_FUNCTION( "ERROR: file parsing error %s\n", e.what());
+        return -1;
+    }
+#ifdef DEBUG
+    for (int i = 0; i < 76; i++) {
+        PRINT_FUNCTION( "%1.5f %1.5f %1.5f\n", importArray[i][0], importArray[i][1], importArray[i][2]);
+    }
+#endif
+    ifile.close();
+
+    _make_soc_3dlut_test(gSocOutputTable,size);
+    /*
+    bool ret = controller_fineColor_setControl(cscGamutTable,gSocOutputTable,ORIGINAL_LUT_SIZE,isLutSetOk ? true : false);
+    PRINT_FUNCTION("[%s] controller_fineColor_setControl  ret = %d\n",__FUNCTION__,ret);
+    */
+    
+    return size;
+}
 
 // ==================================================== Save / Load =====================================================
 bool _load_coordinate_info(void)
@@ -110,13 +288,13 @@ bool _load_original_3dlut(int select)
     int lutSize = 0;
     //originalUiValue = controller_fineColor_get3dLutData(cscGamutTable,gOriginalLutTable,&lutSize,reDeGammaTable);
 	
-    printf( "[%s] originalUiValue %d, lutSize = %d \n",__FUNCTION__,originalUiValue,lutSize);
+    PRINT_FUNCTION( "[%s] originalUiValue %d, lutSize = %d \n",__FUNCTION__,originalUiValue,lutSize);
 	
 #ifdef DEBUG
     FILE* outFile = fopen("/var/log/lutLog", "w");
     
     if(!outFile)
-        printf( "[%s] file Error \n",__FUNCTION__);
+        PRINT_FUNCTION( "[%s] file Error \n",__FUNCTION__);
     else
         fprintf(outFile, "Index     R,G,B Value\n");
 
@@ -215,7 +393,7 @@ std::vector<int> find_close_lut(double theta, double r, double v, double radius,
         rgbIndex[i] = base;
     }
 #ifdef DEBUG
-    printf("[%s] input = [%.4f, %2.4f,%.4f], hsv=( %.4f,%.4f,%.4f ) rgb = (%.4f,%.4f,%.4f)\n",
+    PRINT_FUNCTION("[%s] input = [%.4f, %2.4f,%.4f], hsv=( %.4f,%.4f,%.4f ) rgb = (%.4f,%.4f,%.4f)\n",
         __FUNCTION__,theta,r,v,hsv[0],hsv[1],hsv[2],rgb[0],rgb[1],rgb[2]);
 #endif
 
@@ -244,7 +422,7 @@ vector<Ctl> get_adjacent_controls(int gain, int axis, int level) {
     }
 #else
 #ifdef DEBUG
-    printf("[%s] Find adjacent points. original = [%d,%d,%d]\n",__FUNCTION__,gain,axis,level);
+    PRINT_FUNCTION("[%s] Find adjacent points. original = [%d,%d,%d]\n",__FUNCTION__,gain,axis,level);
 #endif
     //control only same gain level
     for (int da = -1; da <= 1; ++da) {
@@ -320,21 +498,29 @@ void parseJsonString(const string& jsonData, COLOR_TUNING_INFO_T& colorInfo) {
 //============= 1. 제어점 이동 및 DEBUG =============//
 void apply_control_point_updates(const vector<COLOR_TUNING_INFO_T>& colorInfos) {
     for(auto &a : colorInfos) {
-        double orig_theta = original_grpah_coordinate[a.gainIndex][a.row][a.column].first / FIXED_POINT_SCALE;
-        double orig_radius = original_grpah_coordinate[a.gainIndex][a.row][a.column].second / FIXED_POINT_SCALE;
-        double orig_h = orig_theta / (2 * M_PI);
-        double orig_s = orig_radius / saturation_max_level;
-        double new_theta = a.theta / double(FIXED_POINT_SCALE);
-        double new_radius = a.radius / double(FIXED_POINT_SCALE);
-        double new_h = new_theta / (2 * M_PI);
-        double new_s = new_radius / saturation_max_level;
-        double v = get_gain(a.gainIndex);
+        // Need to fix
+        // Check gain range
+        int fixGain = a.gainIndex + 1;
+        if(fixGain > gain_step - 1) fixGain = gain_step - 1;
+        double orig_theta = 0.0f;
+        if(original_grpah_coordinate[fixGain][a.row][a.column].first < 0)
+            orig_theta = original_grpah_coordinate[fixGain][a.row][a.column].first + (2 * M_PI) * FIXED_POINT_SCALE;
+        else
+            orig_theta = original_grpah_coordinate[fixGain][a.row][a.column].first;
+        double orig_radius = original_grpah_coordinate[fixGain][a.row][a.column].second;
+        double orig_h = (orig_theta / double(FIXED_POINT_SCALE)) / (2 * M_PI);
+        double orig_s = (orig_radius / double(FIXED_POINT_SCALE)) / saturation_max_level;
+        double new_theta = a.theta;
+        double new_radius = a.radius;
+        double new_h = (new_theta / double(FIXED_POINT_SCALE)) / (2 * M_PI);
+        double new_s = (new_radius / double(FIXED_POINT_SCALE)) / saturation_max_level;
+        double v = get_gain(fixGain);
  
-        graphs[a.gainIndex][a.row].vertices[a.column] = {a.theta, a.radius};
-        current_graph_coordinate[a.gainIndex][a.row][a.column] = {a.theta, a.radius};
+        graphs[fixGain][a.row].vertices[a.column] = {a.theta, a.radius};
+        current_graph_coordinate[fixGain][a.row][a.column] = {a.theta, a.radius};
 #ifdef DEBUG
-        printf("[CONTROL] idx=(%2d,%2d,%2d) orig_hsv=(%.4f,%.4f,%.4f) --> moved_hsv=(%.4f,%.4f,%.4f)\n",
-            a.gainIndex, a.row, a.column, orig_h, orig_s, v, new_h, new_s, v);
+        PRINT_FUNCTION("[CONTROL] idx=(ori:(%2d -> %2d),%2d,%2d) orig_hsv=(%.4f,%.4f,%.4f) --> moved_hsv=(%.4f,%.4f,%.4f)\n",
+            a.gainIndex, fixGain, a.row, a.column, orig_h, orig_s, v, new_h, new_s, v);
 #endif
     }
 }
@@ -356,7 +542,7 @@ vector<vector<int>> extract_changed_control_points() {
             double new_radius = current_graph_coordinate[i][j][k].second / double(FIXED_POINT_SCALE);
             double new_h = new_theta / (2 * M_PI);
             double new_s = new_radius / saturation_max_level;
-            printf("[CHANGE] idx=[%2d,%2d,%2d] orig_hsv:(%.4f,%.4f,%.4f) -> moved_hsv:(%.4f,%.4f,%.4f)\n",
+            PRINT_FUNCTION("[CHANGE] idx=[%2d,%2d,%2d] orig_hsv:(%.4f,%.4f,%.4f) -> moved_hsv:(%.4f,%.4f,%.4f)\n",
                 i,j,k,orig_h,orig_s,(float)i/(float)(gain_step-1),new_h,new_s,(float)i/(float)(gain_step-1));
 #endif
         }
@@ -367,7 +553,7 @@ vector<vector<int>> extract_changed_control_points() {
 // ========================================================================================= Algorithm ==========================================================================
 
 #ifdef ALGORITHM_VERSION_1
-void domain_change(const std::vector<int>& near, const std::vector<int>& ori, const std::vector<int>& target, float* lutArray, unsigned int *originalLut, int lutSize) {
+void domain_change(const std::vector<int>& near, const std::vector<int>& ori, const std::vector<int>& target, int lutSize) {
 /*
     original point - near point -> R, G, B 3 point
     moved point - near point -> R, G, B 3 point
@@ -377,7 +563,7 @@ void domain_change(const std::vector<int>& near, const std::vector<int>& ori, co
         oDiff[i] = near[i] - ori[i];
         tDiff[i] = near[i] - target[i];
 #ifdef DEBUG
-        printf("[%d] near : [%2d], ori : [%2d], tar : [%2d], oDiff : [%2d], tDiff : [%2d]\n",i,near[i],ori[i],target[i],oDiff[i],tDiff[i]);
+        PRINT_FUNCTION("[%d] near : [%2d], ori : [%2d], tar : [%2d], oDiff : [%2d], tDiff : [%2d]\n",i,near[i],ori[i],target[i],oDiff[i],tDiff[i]);
 #endif
     }
     std::vector<std::vector<int>> oTmpList(3);
@@ -450,6 +636,9 @@ void domain_change(const std::vector<int>& near, const std::vector<int>& ori, co
         }
     }
 
+#ifdef DEBUG
+        PRINT_FUNCTION("near : [%2d,%2d,%2d], ori : [%2d,%2d,%2d], tar : [%2d,%2d,%2d]\n",near[0],near[1],near[2],ori[0],ori[1],ori[2],target[0],target[1],target[2]);
+#endif
     for (size_t idx = 0; idx < oLutList.size(); ++idx) {
         std::vector<int> tLut(3);
         for (int rgb = 0; rgb < 3; ++rgb) {
@@ -477,71 +666,40 @@ void domain_change(const std::vector<int>& near, const std::vector<int>& ori, co
                 }
             }
         }
-
+        // => target lut 생성.
         int arrayTarget = getLinearArrayIndex(tLut[0], tLut[1], tLut[2], lutSize);
         int originalIdx = getLinearArrayIndex(oLutList[idx][0], oLutList[idx][1], oLutList[idx][2], lutSize);
-        final_data[originalIdx] = (float)originalLut[arrayTarget]/4095.0f;
+
+        // => original lut의 값 write 필요.
+        //lutArray[originalIdx] = (float)originalLut[arrayTarget]/4095.0f;
+        
+#ifdef DEBUG
+        PRINT_FUNCTION("[%3d] originalLutList = [%2d,%2d,%2d] : %6d, target = [%2d,%2d,%d] : %6d. value = [%.5f,%.5f,%.5f]\n",
+            idx,oLutList[idx][0], oLutList[idx][1], oLutList[idx][2],originalIdx,tLut[0],tLut[1],tLut[2],arrayTarget,gBypassStandardArray[arrayTarget][0],gBypassStandardArray[arrayTarget][1],gBypassStandardArray[arrayTarget][2]);
+#endif
+        // Need to fix later
+        gCurrentGamutArray[originalIdx][0] = gBypassStandardArray[arrayTarget][0];
+        gCurrentGamutArray[originalIdx][1] = gBypassStandardArray[arrayTarget][1];
+        gCurrentGamutArray[originalIdx][2] = gBypassStandardArray[arrayTarget][2];
     }
 }
-
-/*
-void update_lut_gain(int polygon_index, int vertex_index, double target_r, double target_theta, std::vector<PolygonInfo>& polygons, std::vector<std::vector<std::vector<double>>>& lutArray, const std::vector<std::vector<std::vector<double>>>& originalLut, int LUTSIZE, double volume, int num_polygons, int num_vertices) {
-    double ori_r = polygons[polygon_index].vertices[vertex_index].first;
-    double ori_theta = polygons[polygon_index].vertices[vertex_index].second;
-    std::vector<int> originalLutIndex = find_close_lut(ori_theta, ori_r, volume, num_polygons * 2, LUTSIZE);
-
-    std::vector<int> targetLutIndex = find_close_lut(target_theta, target_r, volume, num_polygons * 2, LUTSIZE);
-
-    std::vector<std::vector<int>> originalLUT(3, std::vector<int>(3));
-    std::vector<std::vector<int>> targetLUT(3, std::vector<int>(3));
-    for (int i = 0; i < 3; ++i) {
-        int pIdx = i - 1 + polygon_index;
-        if (pIdx < 0) {
-            pIdx = 0;
-        } else if (pIdx >= num_polygons) {
-            pIdx = num_polygons - 1;
-        }
-        for (int j = 0; j < 3; ++j) {
-            int vIdx = ((j - 1 + vertex_index) + num_vertices) % num_vertices;
-            originalLUT[i][j] = find_close_lut(polygons[pIdx].vertices[vIdx].second, polygons[pIdx].vertices[vIdx].first, volume, num_polygons * 2, LUTSIZE)[0];
-            targetLUT[i][j] = find_close_lut(polygons[pIdx].vertices[vIdx].second, polygons[pIdx].vertices[vIdx].first, volume, num_polygons * 2, LUTSIZE)[0];
-        }
-    }
-
-    for (int i = 0; i < 3; ++i) {
-        for (int j = 0; j < 3; ++j) {
-            if (i == 1 && j == 1) {
-                continue;
-            }
-            domain_change({ originalLUT[i][j], originalLUT[1][1], targetLUT[1][1] }, { originalLUT[1][1], originalLUT[1][1], targetLUT[1][1] }, { targetLUT[1][1], targetLUT[1][1], targetLUT[1][1] }, lutArray, originalLut, LUTSIZE);
-        }
-    }
-    lutArray[getLinearArrayIndex(originalLUT[0][0], originalLUT[1][1], originalLUT[2][2], LUTSIZE)] = originalLut[getLinearArrayIndex(targetLUT[0][0], targetLUT[1][1], targetLUT[2][2], LUTSIZE)];
-    saveLUTfile(lutArray);
-}
-*/
 #endif
 
 //============= 3. 보간 및 gridData 관련 DEBUG =============//
 void sector_polygon_and_lut_update(int gain, int row, int col) {
     double orig_theta = original_grpah_coordinate[gain][row][col].first / FIXED_POINT_SCALE;
     double orig_radius = original_grpah_coordinate[gain][row][col].second / FIXED_POINT_SCALE;
-    double orig_h = orig_theta / (2 * M_PI), orig_s = orig_radius / saturation_max_level, orig_v = get_gain(gain);
+    double orig_h = orig_theta, orig_s = orig_radius / saturation_max_level, orig_v = get_gain(gain);
  
     double moved_theta = current_graph_coordinate[gain][row][col].first / FIXED_POINT_SCALE;
     double moved_radius = current_graph_coordinate[gain][row][col].second / FIXED_POINT_SCALE;
-    double moved_h = moved_theta / (2 * M_PI), moved_s = moved_radius / saturation_max_level, moved_v = get_gain(gain);
+    double moved_h = moved_theta, moved_s = moved_radius / saturation_max_level, moved_v = get_gain(gain);
  
     vector<int> oriLutIdx = find_close_lut(orig_h,orig_radius,orig_v,(float)saturation_max_level,LUT_STEP_SIZE);
     vector<int> targetLutIdx = find_close_lut(moved_h,moved_radius,moved_v,(float)saturation_max_level,LUT_STEP_SIZE);
 #ifdef DEBUG
-    printf("[SECTOR] idx=[%d,%d,%d] orig_hsv=(%.4f,%.4f,%.4f), moved_hsv=(%.4f,%.4f,%.4f), ori_lut_idx = [%d,%d,%d] moved_lut_idx=[%d,%d,%d]\n",
-        gain, row, col, orig_h, orig_s, orig_v, moved_h, moved_s, moved_v,oriLutIdx[0],oriLutIdx[1],oriLutIdx[2],targetLutIdx[0],targetLutIdx[1],targetLutIdx[2]);
-/*
-    printf("[STEP Guide] STEP SIZE  = %d\n",LUT_STEP_SIZE);
-    for(int i = 0; i < LUT_STEP_SIZE; i++)
-        printf("[%2d] %.5f\n",i,(float)i/(float)(LUT_STEP_SIZE-1));
-*/
+    PRINT_FUNCTION("[SECTOR] idx=[%d,%d,%d] orig_hsv=(%.4f,%.4f,%.4f), moved_hsv=(%.4f,%.4f,%.4f), ori_lut_idx = [%d,%d,%d] moved_lut_idx=[%d,%d,%d]\n",
+        gain, row, col, orig_h / (2* M_PI), orig_s, orig_v, moved_h / (2* M_PI), moved_s, moved_v,oriLutIdx[0],oriLutIdx[1],oriLutIdx[2],targetLutIdx[0],targetLutIdx[1],targetLutIdx[2]);
 #endif
  
 #ifdef ALGORITHM_VERSION_1
@@ -549,23 +707,21 @@ void sector_polygon_and_lut_update(int gain, int row, int col) {
     vector<Ctl> adj_ctls = get_adjacent_controls(gain, row, col);
 
 #ifdef DEBUG
-    printf("[get_adjacent_controls]\n");
+    PRINT_FUNCTION("[get_adjacent_controls]\n");
     for(int i = 0; i<adj_ctls.size(); i++)
-        printf("[%2d] gain : %2d, axis : %2d, level : %2d. RGB LUT Index = [%d,%d,%d] \n",i,adj_ctls[i].gain,adj_ctls[i].axis,adj_ctls[i].level,adj_ctls[i].lutIndex[0],adj_ctls[i].lutIndex[1],adj_ctls[i].lutIndex[2]);
+        PRINT_FUNCTION("[%2d] gain : %2d, axis : %2d, level : %2d. RGB LUT Index = [%d,%d,%d] \n",i,adj_ctls[i].gain,adj_ctls[i].axis,adj_ctls[i].level,adj_ctls[i].lutIndex[0],adj_ctls[i].lutIndex[1],adj_ctls[i].lutIndex[2]);
 #endif
     //SET Original, target, adjacent points.
-    for (int i = 0; i <adj_ctls.size(); ++i)
-        domain_change({adj_ctls[i].lutIndex[0],adj_ctls[i].lutIndex[1],adj_ctls[i].lutIndex[2]},oriLutIdx,targetLutIdx,final17_data,gOriginalLutTable,LUT_STEP_SIZE);
-
+    for (int i = 0; i <adj_ctls.size(); ++i) {
+        domain_change({adj_ctls[i].lutIndex[0],adj_ctls[i].lutIndex[1],adj_ctls[i].lutIndex[2]},oriLutIdx,targetLutIdx,LUT_STEP_SIZE);
+    }
+    
+    gCurrentGamutArray[getLinearArrayIndex(oriLutIdx[0],oriLutIdx[1],oriLutIdx[2],LUT_STEP_SIZE)][0] = gBypassStandardArray[getLinearArrayIndex(targetLutIdx[0],targetLutIdx[1],targetLutIdx[2],LUT_STEP_SIZE)][0];
+    gCurrentGamutArray[getLinearArrayIndex(oriLutIdx[0],oriLutIdx[1],oriLutIdx[2],LUT_STEP_SIZE)][1] = gBypassStandardArray[getLinearArrayIndex(targetLutIdx[0],targetLutIdx[1],targetLutIdx[2],LUT_STEP_SIZE)][1];
+    gCurrentGamutArray[getLinearArrayIndex(oriLutIdx[0],oriLutIdx[1],oriLutIdx[2],LUT_STEP_SIZE)][2] = gBypassStandardArray[getLinearArrayIndex(targetLutIdx[0],targetLutIdx[1],targetLutIdx[2],LUT_STEP_SIZE)][2];
+    
 #else
     vector<Ctl> adj_ctls = get_adjacent_controls(gain, row, col);
-#ifdef DEBUG
-    printf("[get_adjacent_controls]\n");
-    for(int i = 0; i<adj_ctls.size(); i++) {
-        printf("[%2d] gain : %2d, axis : %2d, level : %2d, \n",i,adj_ctls[i].gain,adj_ctls[i].axis,adj_ctls[i].level);
-    }
-#endif
-
     vector<pair<double,double>> poly_cart;
     poly_cart.push_back(polar_to_cart(moved_h, moved_s));
     for(auto ctl : adj_ctls) {
@@ -596,10 +752,10 @@ void sector_polygon_and_lut_update(int gain, int row, int col) {
 
             #ifdef DEBUG
                 if(cnt++<10)
-                    printf(" [GRID] RGB idx=(%2d,%2d,%2d) hsv(%.3f,%.3f,%.3f)->(%.3f,%.3f,%.3f) rgb(%.2f,%.2f,%.2f)->LUT(%d,%d,%d)\n",
+                    PRINT_FUNCTION(" [GRID] RGB idx=(%2d,%2d,%2d) hsv(%.3f,%.3f,%.3f)->(%.3f,%.3f,%.3f) rgb(%.2f,%.2f,%.2f)->LUT(%d,%d,%d)\n",
                         r,g,b,gh,gs,gv,gh2,gs2,gv2, rgb_new[0],rgb_new[1],rgb_new[2], rr,gg,bb);
-                else if(cnt==11) printf("...\n");
-                printf("Total cnt : %d\n",cnt);
+                else if(cnt==11) PRINT_FUNCTION("...\n");
+                PRINT_FUNCTION("Total cnt : %d\n",cnt);
                 cnt = 0;
             #endif
 
@@ -609,7 +765,7 @@ void sector_polygon_and_lut_update(int gain, int row, int col) {
                     gCurrentGamutArray[r + LUT_STEP_SIZE*(g + b*LUT_STEP_SIZE)][1] = gCurrentGamutArray[rr + LUT_STEP_SIZE*(gg + bb*LUT_STEP_SIZE)][1];
                     gCurrentGamutArray[r + LUT_STEP_SIZE*(g + b*LUT_STEP_SIZE)][2] = gCurrentGamutArray[rr + LUT_STEP_SIZE*(gg + bb*LUT_STEP_SIZE)][2];  
                     #ifdef DEBUG
-                        printf("Diff save [%d,%d,%d] -> [%d,%d,%d]\n",r,g,b,rr,gg,bb);
+                        PRINT_FUNCTION("Diff save [%d,%d,%d] -> [%d,%d,%d]\n",r,g,b,rr,gg,bb);
                     #endif
                 }
             }
@@ -699,13 +855,13 @@ void _lut_domain_interpolation(int inputSize, int outputSize) {
     interpolateLUT(final_data, inputSize, outputSize);
 
 #ifdef DEBUG
-        printf("Final data shape: %d, size: %d\n", newLutSize,outputSize);
+        PRINT_FUNCTION("Final data shape: %d, size: %d\n", newLutSize,outputSize);
         for (int i = 0; i < 25; ++i)
-             printf("[%6d] %f %f %f\n", i, final_data[3 * i], final_data[3 * i + 1], final_data[3 * i + 2]);
+             PRINT_FUNCTION("[%6d] %f %f %f\n", i, final_data[3 * i], final_data[3 * i + 1], final_data[3 * i + 2]);
         for (int i = (newLutSize-25)/2; i < newLutSize/2; ++i)
-             printf("[%6d] %f %f %f\n", i, final_data[3 * i], final_data[3 * i + 1], final_data[3 * i + 2]);
+             PRINT_FUNCTION("[%6d] %f %f %f\n", i, final_data[3 * i], final_data[3 * i + 1], final_data[3 * i + 2]);
         for (int i = newLutSize - 25; i < newLutSize; ++i)
-             printf("[%6d] %f %f %f\n", i, final_data[3 * i], final_data[3 * i + 1], final_data[3 * i + 2]);
+             PRINT_FUNCTION("[%6d] %f %f %f\n", i, final_data[3 * i], final_data[3 * i + 1], final_data[3 * i + 2]);
 #endif
 
     for (size_t i = 0; i < newLutSize; ++i) {
@@ -717,11 +873,10 @@ void _lut_domain_interpolation(int inputSize, int outputSize) {
 }
 
 //============= 4. LUT 파일 저장 =============//
-void save_lut_to_file(void) {
-    const char* filename = "new17Lut.txt";
-    FILE* out = fopen(filename, "w");
+void save_lut_to_file(string fileName) {
+    FILE* out = fopen(string("./new17" + fileName).c_str(), "w");
     if(!out)
-        printf( "[%s] file Error \n",__FUNCTION__);
+        PRINT_FUNCTION( "[%s] file Error \n",__FUNCTION__);
     else {
         _make_soc_3dlut();
         fprintf(out,"[Output] LUT_STEP_SIZE = %d\n",LUT_STEP_SIZE);
@@ -732,10 +887,9 @@ void save_lut_to_file(void) {
 
     _lut_domain_interpolation(LUT_STEP_SIZE, ORIGINAL_LUT_SIZE);
     
-    const char* filename2 = "new33Lut.txt";
-    FILE* out2 = fopen(filename2, "w");
+    FILE* out2 = fopen(string("./new33" + fileName).c_str(), "w");
     if(!out2)
-        printf( "[%s] file Error \n",__FUNCTION__);
+        PRINT_FUNCTION( "[%s] file Error \n",__FUNCTION__);
     else {
         fprintf(out2,"[Output] LUT_STEP_SIZE = %d\n",ORIGINAL_LUT_SIZE);
         for(int zi = 0; zi < ORIGINAL_LUT_SIZE; ++zi) {
@@ -749,16 +903,16 @@ void save_lut_to_file(void) {
         fclose(out2);
     }
 #ifdef DEBUG
-    printf("[SAVE] file = %s\n", filename2);
+    PRINT_FUNCTION("[SAVE] Complete\n");
 #endif
 }
  
 // ==================================================== Initialize =======================================================
 void _make_bypass_lut(int option) {
 #ifdef DEBUG
-    FILE* outFile = fopen("./lutLog_bypass", "w");
+    FILE* outFile = fopen("/var/log/lutLog_bypass", "w");
     if(!outFile)
-        printf( "[%s] file Error \n",__FUNCTION__);
+        PRINT_FUNCTION( "[%s] file Error \n",__FUNCTION__);
     else
         fprintf(outFile, "Index     R,G,B Value\n");
 #endif
@@ -771,8 +925,19 @@ void _make_bypass_lut(int option) {
         gCurrentGamutArray[i][0] = gBypassStandardArray[i][0];
         gCurrentGamutArray[i][1] = gBypassStandardArray[i][1];
         gCurrentGamutArray[i][2] = gBypassStandardArray[i][2];
+
+        final17_data[3*i + 0] = gBypassStandardArray[i][0];
+        final17_data[3*i + 1] = gBypassStandardArray[i][1];
+        final17_data[3*i + 2] = gBypassStandardArray[i][2];
+
+        // Need to fix
+        gOriginalLutTable[3*i + 0] = gBypassStandardArray[i][0]*4095;
+        gOriginalLutTable[3*i + 1] = gBypassStandardArray[i][1]*4095;
+        gOriginalLutTable[3*i + 2] = gBypassStandardArray[i][2]*4095;
+        
 #ifdef DEBUG
-        fprintf(outFile,"[%4d] %1.5f %1.5f %1.5f\n", i, gBypassStandardArray[i][0], gBypassStandardArray[i][1], gBypassStandardArray[i][2]);
+        if(outFile)
+            fprintf(outFile,"[%4d] %1.5f %1.5f %1.5f\n", i, gBypassStandardArray[i][0], gBypassStandardArray[i][1], gBypassStandardArray[i][2]);
 #endif
     }
 
@@ -796,7 +961,7 @@ void _generate_graphs(void) {
         graphs.emplace_back(tmpGraph);
     }
 #ifdef DEBUG
-    printf("[Initinalize] _generate_graphs\n");
+    PRINT_FUNCTION("[Initinalize] _generate_graphs\n");
 #endif
 }
 void pqcontrollerCustomLut_init_custom_lut_function(void) {
@@ -812,7 +977,7 @@ void pqcontrollerCustomLut_init_custom_lut_function(void) {
     _make_bypass_lut(0);
     bIsInit = true;
 #ifdef DEBUG
-    printf("[Initinalize] pqcontrollerCustomLut_init_custom_lut_function\n");
+    PRINT_FUNCTION("[Initinalize] pqcontrollerCustomLut_init_custom_lut_function\n");
 #endif
 }
  
@@ -838,7 +1003,7 @@ bool pqcontrollerCustomLut_setColorFineParam(vector<COLOR_TUNING_INFO_T> colorIn
     for(auto& pt : changed_point_info)
         prev_graph_coordinate[pt[0]][pt[1]][pt[2]] = current_graph_coordinate[pt[0]][pt[1]][pt[2]];
     // Save file function.
-    save_lut_to_file();
+    save_lut_to_file("lutFile.txt");
     return true;
 }
 
